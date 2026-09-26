@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.music.instrument.mapper.ServiceOrderMapper">
+
+    <!-- 公共片段 1：服务单 + 乐器 + 调律师 关联查询，三处 <include> -->
+    <sql id="serviceView">
+        SELECT
+            s.id             AS id,
+            s.service_no     AS serviceNo,
+            s.instrument_id  AS instrumentId,
+            s.technician_id  AS technicianId,
+            s.service_type   AS serviceType,
+            s.plan_start     AS planStart,
+            s.plan_end       AS planEnd,
+            s.fee            AS fee,
+            s.status         AS status,
+            s.current_round  AS currentRound,
+            s.instrument_snapshot AS instrumentSnapshot,
+            s.result_note    AS resultNote,
+            s.created_at     AS createdAt,
+            s.updated_at     AS updatedAt,
+            i.instrument_no  AS instrumentNo,
+            i.name           AS instrumentName,
+            i.category       AS instrumentCategory,
+            i.status         AS instrumentStatus,
+            t.tech_no        AS technicianNo,
+            t.name           AS technicianName,
+            t.level          AS technicianLevel
+        FROM service_order s
+        LEFT JOIN instrument i ON i.id = s.instrument_id
+        LEFT JOIN technician t ON t.id = s.technician_id
+    </sql>
+
+    <!-- 公共片段 2：同一调律师的排期重叠判定，只算未取消的单子。两处 <include> -->
+    <sql id="technicianOverlap">
+        s.technician_id = #{technicianId}
+        AND s.status IN ('PLANNED', 'DOING', 'PENDING_ACCEPT', 'REWORKING')
+        AND s.plan_start &lt; #{planEnd}
+        AND s.plan_end   &gt; #{planStart}
+    </sql>
+
+    <select id="list" resultType="com.music.instrument.dto.view.ServiceView">
+        <include refid="serviceView"/>
+        <where>
+            <if test="status != null and status != ''">
+                AND s.status = #{status}
+            </if>
+            <!-- <foreach> 用例 3：按多台乐器筛服务单 -->
+            <if test="instrumentIds != null and instrumentIds.size() > 0">
+                AND s.instrument_id IN
+                <foreach collection="instrumentIds" item="iid" open="(" separator="," close=")">
+                    #{iid}
+                </foreach>
+            </if>
+            <!-- <foreach> 用例 4：按多位调律师筛服务单 -->
+            <if test="technicianIds != null and technicianIds.size() > 0">
+                AND s.technician_id IN
+                <foreach collection="technicianIds" item="tid" open="(" separator="," close=")">
+                    #{tid}
+                </foreach>
+            </if>
+        </where>
+        ORDER BY s.plan_start DESC, s.id DESC
+    </select>
+
+    <select id="findById" resultType="com.music.instrument.dto.view.ServiceView">
+        <include refid="serviceView"/>
+        WHERE s.id = #{id}
+    </select>
+
+    <!-- 事务内行锁：只锁服务单本行，串行化同一服务单上的提交/验收并发 -->
+    <select id="lockById" resultType="com.music.instrument.dto.view.ServiceView">
+        SELECT
+            s.id            AS id,
+            s.service_no    AS serviceNo,
+            s.instrument_id AS instrumentId,
+            s.technician_id AS technicianId,
+            s.service_type  AS serviceType,
+            s.plan_start    AS planStart,
+            s.plan_end      AS planEnd,
+            s.fee           AS fee,
+            s.status        AS status,
+            s.current_round AS currentRound,
+            s.instrument_snapshot AS instrumentSnapshot,
+            s.result_note   AS resultNote,
+            s.created_at    AS createdAt,
+            s.updated_at    AS updatedAt
+        FROM service_order s
+        WHERE s.id = #{id}
+        FOR UPDATE
+    </select>
+
+    <!-- 乐器行内展开详情：一次取多台乐器的服务单 -->
+    <select id="listByInstrumentIds" resultType="com.music.instrument.dto.view.ServiceView">
+        <include refid="serviceView"/>
+        WHERE s.instrument_id IN
+        <foreach collection="instrumentIds" item="iid" open="(" separator="," close=")">
+            #{iid}
+        </foreach>
+        ORDER BY s.plan_start DESC, s.id DESC
+    </select>
+
+    <select id="countTechOverlapForCreate" resultType="int">
+        SELECT COUNT(1)
+        FROM service_order s
+        WHERE
+        <include refid="technicianOverlap"/>
+    </select>
+
+    <select id="countTechOverlapForUpdate" resultType="int">
+        SELECT COUNT(1)
+        FROM service_order s
+        WHERE
+        <include refid="technicianOverlap"/>
+        AND s.id &lt;&gt; #{excludeId}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO service_order
+            (service_no, instrument_id, technician_id, service_type, plan_start, plan_end,
+             fee, status, current_round, instrument_snapshot, result_note, created_at, updated_at)
+        VALUES
+            (#{serviceNo}, #{instrumentId}, #{technicianId}, #{serviceType}, #{planStart},
+             #{planEnd}, #{fee}, #{status},
+             <choose>
+                 <when test="currentRound != null">#{currentRound}</when>
+                 <otherwise>0</otherwise>
+             </choose>,
+             #{instrumentSnapshot}, #{resultNote}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <!-- 开始施工：只在 PLANNED 时生效（防重复开始），并落地维修类的乐器原状态快照 -->
+    <update id="markDoing">
+        UPDATE service_order
+        SET status              = 'DOING',
+            instrument_snapshot = #{instrumentSnapshot},
+            updated_at          = #{updatedAt}
+        WHERE id = #{id}
+          AND status = 'PLANNED'
+    </update>
+
+    <!-- 通用状态更新（仅取消派单等使用，不改轮次与快照） -->
+    <update id="updateStatus">
+        UPDATE service_order
+        SET status      = #{status},
+            result_note = #{resultNote},
+            updated_at  = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <!-- 条件更新：expectedStatus 匹配才生效，返回影响行数（并发冲突时为 0） -->
+    <update id="updateStatusIfExpected">
+        UPDATE service_order
+        SET status        = #{newStatus},
+            current_round = #{currentRound},
+            updated_at    = #{updatedAt}
+        WHERE id = #{id}
+          AND status = #{expectedStatus}
+    </update>
+
+    <select id="countAll" resultType="int">
+        SELECT COUNT(1) FROM service_order
+    </select>
+
+    <select id="countByNo" resultType="int">
+        SELECT COUNT(1) FROM service_order WHERE service_no = #{serviceNo}
+    </select>
+
+    <select id="countOpenRepairsByInstrument" resultType="int">
+        SELECT COUNT(1)
+        FROM service_order
+        WHERE instrument_id = #{instrumentId}
+          AND service_type IN ('REPAIR', 'OVERHAUL')
+          AND status IN ('DOING', 'PENDING_ACCEPT', 'REWORKING')
+          AND id &lt;&gt; #{excludeId}
+    </select>
+
+</mapper>

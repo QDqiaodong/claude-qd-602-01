@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.music.instrument.mapper.ServiceCompletionMapper">
+
+    <sql id="completionColumns">
+        c.id                AS id,
+        c.service_order_id  AS serviceOrderId,
+        c.round_no          AS roundNo,
+        c.phase             AS phase,
+        c.process_note      AS processNote,
+        c.check_result      AS checkResult,
+        c.delivery_note     AS deliveryNote,
+        c.remaining_fault   AS remainingFault,
+        c.rework_request    AS reworkRequest,
+        c.operator_name     AS operatorName,
+        c.created_at        AS createdAt
+    </sql>
+
+    <select id="listByOrderId" resultType="com.music.instrument.dto.view.CompletionRoundView">
+        SELECT
+        <include refid="completionColumns"/>
+        FROM service_completion c
+        WHERE c.service_order_id = #{serviceOrderId}
+        ORDER BY c.round_no ASC,
+                 CASE c.phase WHEN 'COMPLETION' THEN 0 WHEN 'REJECTED' THEN 1 ELSE 2 END,
+                 c.id ASC
+    </select>
+
+    <select id="listByOrderIds" resultType="com.music.instrument.dto.view.CompletionRoundView">
+        SELECT
+        <include refid="completionColumns"/>
+        FROM service_completion c
+        WHERE c.service_order_id IN
+        <foreach collection="serviceOrderIds" item="oid" open="(" separator="," close=")">
+            #{oid}
+        </foreach>
+        ORDER BY c.service_order_id ASC,
+                 c.round_no ASC,
+                 CASE c.phase WHEN 'COMPLETION' THEN 0 WHEN 'REJECTED' THEN 1 ELSE 2 END,
+                 c.id ASC
+    </select>
+
+    <select id="countByOrderRoundPhase" resultType="int">
+        SELECT COUNT(1)
+        FROM service_completion
+        WHERE service_order_id = #{serviceOrderId}
+          AND round_no = #{roundNo}
+          AND phase = #{phase}
+    </select>
+
+    <select id="findDecision" resultType="com.music.instrument.dto.view.CompletionRoundView">
+        SELECT
+        <include refid="completionColumns"/>
+        FROM service_completion c
+        WHERE c.service_order_id = #{serviceOrderId}
+          AND c.round_no = #{roundNo}
+          AND c.phase IN ('ACCEPTED', 'REJECTED')
+        LIMIT 1
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO service_completion
+            (service_order_id, round_no, phase, process_note, check_result, delivery_note,
+             remaining_fault, rework_request, operator_name, created_at)
+        VALUES
+            (#{serviceOrderId}, #{roundNo}, #{phase}, #{processNote}, #{checkResult}, #{deliveryNote},
+             #{remainingFault}, #{reworkRequest}, #{operatorName}, #{createdAt})
+    </insert>
+
+</mapper>

@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.music.instrument.mapper.RentalOrderMapper">
+
+    <!-- ====================================================================
+         公共片段 1：租赁订单 + 乐器 + 学员 的整段关联查询。
+         list / findById / listByInstrumentIds 三处 <include>，
+         保证「订单行显示什么」永远只有一份定义。
+         ==================================================================== -->
+    <sql id="rentalView">
+        SELECT
+            r.id            AS id,
+            r.order_no      AS orderNo,
+            r.instrument_id AS instrumentId,
+            r.student_id    AS studentId,
+            r.start_date    AS startDate,
+            r.end_date      AS endDate,
+            r.deposit       AS deposit,
+            r.daily_rent    AS dailyRent,
+            r.rent_amount   AS rentAmount,
+            r.status        AS status,
+            r.return_date   AS returnDate,
+            r.overdue_fee   AS overdueFee,
+            r.created_at    AS createdAt,
+            r.updated_at    AS updatedAt,
+            i.instrument_no AS instrumentNo,
+            i.name          AS instrumentName,
+            i.category      AS instrumentCategory,
+            s.student_no    AS studentNo,
+            s.name          AS studentName
+        FROM rental_order r
+        LEFT JOIN instrument i ON i.id = r.instrument_id
+        LEFT JOIN student    s ON s.id = r.student_id
+    </sql>
+
+    <!-- ====================================================================
+         公共片段 2：租期重叠判定条件（闭区间相交）。
+         被 countOverlapForCreate / countOverlapForUpdate 两处 <include>，
+         重叠口径只有一份定义，新建与改期不会跑偏。
+         ==================================================================== -->
+    <sql id="rentalPeriodOverlap">
+        r.instrument_id = #{instrumentId}
+        AND r.status IN ('BOOKED', 'RENTING', 'OVERDUE')
+        AND r.start_date &lt;= #{endDate}
+        AND r.end_date   &gt;= #{startDate}
+    </sql>
+
+    <select id="list" resultType="com.music.instrument.dto.view.RentalView">
+        <include refid="rentalView"/>
+        <where>
+            <if test="status != null and status != ''">
+                AND r.status = #{status}
+            </if>
+            <!-- <foreach> 用例 2：按多台乐器筛订单，拼成 IN (1,2,3) -->
+            <if test="instrumentIds != null and instrumentIds.size() > 0">
+                AND r.instrument_id IN
+                <foreach collection="instrumentIds" item="iid" open="(" separator="," close=")">
+                    #{iid}
+                </foreach>
+            </if>
+        </where>
+        ORDER BY r.start_date DESC, r.id DESC
+    </select>
+
+    <select id="findById" resultType="com.music.instrument.dto.view.RentalView">
+        <include refid="rentalView"/>
+        WHERE r.id = #{id}
+    </select>
+
+    <!-- 乐器行内展开详情：一次取多台乐器的历史租赁记录 -->
+    <select id="listByInstrumentIds" resultType="com.music.instrument.dto.view.RentalView">
+        <include refid="rentalView"/>
+        WHERE r.instrument_id IN
+        <foreach collection="instrumentIds" item="iid" open="(" separator="," close=")">
+            #{iid}
+        </foreach>
+        ORDER BY r.start_date DESC, r.id DESC
+    </select>
+
+    <select id="countOverlapForCreate" resultType="int">
+        SELECT COUNT(1)
+        FROM rental_order r
+        WHERE
+        <include refid="rentalPeriodOverlap"/>
+    </select>
+
+    <select id="countOverlapForUpdate" resultType="int">
+        SELECT COUNT(1)
+        FROM rental_order r
+        WHERE
+        <include refid="rentalPeriodOverlap"/>
+        AND r.id &lt;&gt; #{excludeId}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO rental_order
+            (order_no, instrument_id, student_id, start_date, end_date, deposit, daily_rent,
+             rent_amount, status, return_date, overdue_fee, created_at, updated_at)
+        VALUES
+            (#{orderNo}, #{instrumentId}, #{studentId}, #{startDate}, #{endDate}, #{deposit},
+             #{dailyRent}, #{rentAmount}, #{status}, #{returnDate}, #{overdueFee},
+             #{createdAt}, #{updatedAt})
+    </insert>
+
+    <update id="updateReturn">
+        UPDATE rental_order
+        SET return_date = #{returnDate},
+            overdue_fee = #{overdueFee},
+            status      = #{status},
+            updated_at  = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <select id="countAll" resultType="int">
+        SELECT COUNT(1) FROM rental_order
+    </select>
+
+    <select id="countByNo" resultType="int">
+        SELECT COUNT(1) FROM rental_order WHERE order_no = #{orderNo}
+    </select>
+
+</mapper>

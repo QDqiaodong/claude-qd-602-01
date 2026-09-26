@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.music.instrument.mapper.EnrollmentMapper">
+
+    <!-- 公共片段 1：约课记录 + 学员 + 课程 关联查询，list 与 listByCourseId 口径一致 -->
+    <sql id="enrollmentView">
+        SELECT
+            e.id             AS id,
+            e.student_id     AS studentId,
+            e.course_id      AS courseId,
+            e.enroll_date    AS enrollDate,
+            e.lessons        AS lessons,
+            e.status         AS status,
+            e.created_at     AS createdAt,
+            s.student_no     AS studentNo,
+            s.name           AS studentName,
+            s.level          AS studentLevel,
+            s.lesson_balance AS lessonBalance,
+            c.course_no      AS courseNo,
+            c.title          AS courseTitle,
+            c.teacher_name   AS teacherName,
+            c.category       AS courseCategory,
+            c.capacity       AS capacity,
+            c.enrolled_count AS enrolledCount
+        FROM enrollment e
+        LEFT JOIN student       s ON s.id = e.student_id
+        LEFT JOIN lesson_course c ON c.id = e.course_id
+    </sql>
+
+    <!-- 公共片段 2：约课记录固定排序 -->
+    <sql id="enrollmentOrderBy">
+        ORDER BY e.enroll_date DESC, e.id DESC
+    </sql>
+
+    <select id="list" resultType="com.music.instrument.dto.view.EnrollmentView">
+        <include refid="enrollmentView"/>
+        <where>
+            <if test="studentId != null">
+                AND e.student_id = #{studentId}
+            </if>
+            <if test="courseId != null">
+                AND e.course_id = #{courseId}
+            </if>
+        </where>
+        <include refid="enrollmentOrderBy"/>
+    </select>
+
+    <select id="listByCourseId" resultType="com.music.instrument.domain.Enrollment">
+        <include refid="enrollmentView"/>
+        WHERE e.course_id = #{courseId}
+          AND e.status = 'NORMAL'
+        <include refid="enrollmentOrderBy"/>
+    </select>
+
+    <select id="countByStudentAndCourse" resultType="int">
+        SELECT COUNT(1)
+        FROM enrollment
+        WHERE student_id = #{studentId}
+          AND course_id = #{courseId}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO enrollment (student_id, course_id, enroll_date, lessons, status, created_at)
+        VALUES (#{studentId}, #{courseId}, #{enrollDate}, #{lessons}, #{status}, #{createdAt})
+    </insert>
+
+    <!-- <foreach> 用例 6：一键多科报名，一条 INSERT 批量落多条 VALUES -->
+    <insert id="insertBatch" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO enrollment (student_id, course_id, enroll_date, lessons, status, created_at)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.studentId}, #{item.courseId}, #{item.enrollDate}, #{item.lessons},
+             #{item.status}, #{item.createdAt})
+        </foreach>
+    </insert>
+
+    <update id="updateStatus">
+        UPDATE enrollment SET status = #{status} WHERE id = #{id}
+    </update>
+
+</mapper>

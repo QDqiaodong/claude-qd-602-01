@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.music.instrument.mapper.StudentMapper">
+
+    <sql id="studentColumns">
+        s.id             AS id,
+        s.student_no     AS studentNo,
+        s.name           AS name,
+        s.phone          AS phone,
+        s.level          AS level,
+        s.lesson_balance AS lessonBalance,
+        s.created_at     AS createdAt,
+        s.updated_at     AS updatedAt
+    </sql>
+
+    <select id="findAll" resultType="com.music.instrument.domain.Student">
+        SELECT
+        <include refid="studentColumns"/>
+        FROM student s
+        ORDER BY s.student_no ASC
+    </select>
+
+    <select id="findById" resultType="com.music.instrument.domain.Student">
+        SELECT
+        <include refid="studentColumns"/>
+        FROM student s
+        WHERE s.id = #{id}
+    </select>
+
+    <!-- <foreach> 用例：课程详情里的学员名单，一次 IN (...) 取回 -->
+    <select id="findByIds" resultType="com.music.instrument.domain.Student">
+        SELECT
+        <include refid="studentColumns"/>
+        FROM student s
+        WHERE s.id IN
+        <foreach collection="ids" item="sid" open="(" separator="," close=")">
+            #{sid}
+        </foreach>
+        ORDER BY s.student_no ASC
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO student
+            (student_no, name, phone, level, lesson_balance, created_at, updated_at)
+        VALUES
+            (#{studentNo}, #{name}, #{phone}, #{level}, #{lessonBalance}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <!-- 课时余额只能在 SQL 里增减，避免「读出来再加再写回」造成的覆盖 -->
+    <update id="updateLessonBalance">
+        UPDATE student
+        SET lesson_balance = lesson_balance + #{delta}, updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <select id="countByNo" resultType="int">
+        SELECT COUNT(1) FROM student WHERE student_no = #{studentNo}
+    </select>
+
+    <select id="countByPhone" resultType="int">
+        SELECT COUNT(1) FROM student WHERE phone = #{phone}
+    </select>
+
+</mapper>

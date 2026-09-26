@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.music.instrument.mapper.LessonCourseMapper">
+
+    <sql id="courseColumns">
+        c.id             AS id,
+        c.course_no      AS courseNo,
+        c.title          AS title,
+        c.teacher_name   AS teacherName,
+        c.category       AS category,
+        c.capacity       AS capacity,
+        c.enrolled_count AS enrolledCount,
+        c.price          AS price,
+        c.status         AS status,
+        c.created_at     AS createdAt,
+        c.updated_at     AS updatedAt
+    </sql>
+
+    <select id="findAll" resultType="com.music.instrument.domain.LessonCourse">
+        SELECT
+        <include refid="courseColumns"/>
+        FROM lesson_course c
+        ORDER BY c.course_no ASC
+    </select>
+
+    <select id="findById" resultType="com.music.instrument.domain.LessonCourse">
+        SELECT
+        <include refid="courseColumns"/>
+        FROM lesson_course c
+        WHERE c.id = #{id}
+    </select>
+
+    <!-- <foreach> 用例 5：一键多科报名时按 id 批量取课程 -->
+    <select id="findByIds" resultType="com.music.instrument.domain.LessonCourse">
+        SELECT
+        <include refid="courseColumns"/>
+        FROM lesson_course c
+        WHERE c.id IN
+        <foreach collection="ids" item="cid" open="(" separator="," close=")">
+            #{cid}
+        </foreach>
+        ORDER BY c.course_no ASC
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO lesson_course
+            (course_no, title, teacher_name, category, capacity, enrolled_count, price, status,
+             created_at, updated_at)
+        VALUES
+            (#{courseNo}, #{title}, #{teacherName}, #{category}, #{capacity}, #{enrolledCount},
+             #{price}, #{status}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <update id="updateEnrolledCount">
+        UPDATE lesson_course
+        SET enrolled_count = enrolled_count + #{delta}, updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <select id="countByNo" resultType="int">
+        SELECT COUNT(1) FROM lesson_course WHERE course_no = #{courseNo}
+    </select>
+
+</mapper>

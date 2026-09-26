@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.music.instrument.mapper.InstrumentMapper">
+
+    <!-- ====================================================================
+         公共片段 1：乐器表的输出列。被 findAll / findByCategoryAndStatus /
+         findById / findByIds 四处 <include>，改一处即全改。
+         ==================================================================== -->
+    <sql id="instrumentColumns">
+        i.id            AS id,
+        i.instrument_no AS instrumentNo,
+        i.name          AS name,
+        i.category      AS category,
+        i.brand         AS brand,
+        i.daily_rent    AS dailyRent,
+        i.status        AS status,
+        i.purchase_date AS purchaseDate,
+        i.note          AS note,
+        i.created_at    AS createdAt,
+        i.updated_at    AS updatedAt
+    </sql>
+
+    <!-- 公共片段 2：固定排序口径，四处复用 -->
+    <sql id="instrumentOrderBy">
+        ORDER BY i.instrument_no ASC
+    </sql>
+
+    <select id="findAll" resultType="com.music.instrument.domain.Instrument">
+        SELECT
+        <include refid="instrumentColumns"/>
+        FROM instrument i
+        <include refid="instrumentOrderBy"/>
+    </select>
+
+    <select id="findByCategoryAndStatus" resultType="com.music.instrument.domain.Instrument">
+        SELECT
+        <include refid="instrumentColumns"/>
+        FROM instrument i
+        <where>
+            <if test="category != null and category != ''">
+                AND i.category = #{category}
+            </if>
+            <if test="status != null and status != ''">
+                AND i.status = #{status}
+            </if>
+        </where>
+        <include refid="instrumentOrderBy"/>
+    </select>
+
+    <select id="findById" resultType="com.music.instrument.domain.Instrument">
+        SELECT
+        <include refid="instrumentColumns"/>
+        FROM instrument i
+        WHERE i.id = #{id}
+    </select>
+
+    <select id="lockById" resultType="com.music.instrument.domain.Instrument">
+        SELECT
+        <include refid="instrumentColumns"/>
+        FROM instrument i
+        WHERE i.id = #{id}
+        FOR UPDATE
+    </select>
+
+    <!-- <foreach> 用例 1：批量按 id 取乐器，拼成 IN (1,2,3) -->
+    <select id="findByIds" resultType="com.music.instrument.domain.Instrument">
+        SELECT
+        <include refid="instrumentColumns"/>
+        FROM instrument i
+        WHERE i.id IN
+        <foreach collection="ids" item="iid" open="(" separator="," close=")">
+            #{iid}
+        </foreach>
+        <include refid="instrumentOrderBy"/>
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO instrument
+            (instrument_no, name, category, brand, daily_rent, status, purchase_date, note, created_at, updated_at)
+        VALUES
+            (#{instrumentNo}, #{name}, #{category}, #{brand}, #{dailyRent}, #{status},
+             #{purchaseDate}, #{note}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <update id="updateStatus">
+        UPDATE instrument
+        SET status = #{status}, updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatusIfCurrent">
+        UPDATE instrument
+        SET status = #{newStatus}, updated_at = #{updatedAt}
+        WHERE id = #{id}
+          AND status = #{currentStatus}
+    </update>
+
+    <select id="countByNo" resultType="int">
+        SELECT COUNT(1) FROM instrument WHERE instrument_no = #{instrumentNo}
+    </select>
+
+</mapper>

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.music.instrument.mapper.TechnicianMapper">
+
+    <sql id="technicianColumns">
+        t.id         AS id,
+        t.tech_no    AS techNo,
+        t.name       AS name,
+        t.level      AS level,
+        t.phone      AS phone,
+        t.status     AS status,
+        t.created_at AS createdAt
+    </sql>
+
+    <select id="findAll" resultType="com.music.instrument.domain.Technician">
+        SELECT
+        <include refid="technicianColumns"/>
+        FROM technician t
+        ORDER BY t.tech_no ASC
+    </select>
+
+    <select id="findById" resultType="com.music.instrument.domain.Technician">
+        SELECT
+        <include refid="technicianColumns"/>
+        FROM technician t
+        WHERE t.id = #{id}
+    </select>
+
+    <!-- <foreach> 用例：批量按 id 取调律师 -->
+    <select id="findByIds" resultType="com.music.instrument.domain.Technician">
+        SELECT
+        <include refid="technicianColumns"/>
+        FROM technician t
+        WHERE t.id IN
+        <foreach collection="ids" item="tid" open="(" separator="," close=")">
+            #{tid}
+        </foreach>
+        ORDER BY t.tech_no ASC
+    </select>
+
+    <select id="countByNo" resultType="int">
+        SELECT COUNT(1) FROM technician WHERE tech_no = #{techNo}
+    </select>
+
+</mapper>
