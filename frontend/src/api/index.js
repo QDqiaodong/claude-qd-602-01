@@ -22,8 +22,11 @@ http.interceptors.response.use(
   }
 )
 
-/** 去掉 params 里的空值，避免后端收到空串 */
-const clean = (params) => {
+/**
+ * 去掉 params 里的空值，避免后端收到空串。
+ * probe=true 时附带 sqlProbe=1，自动化检查据此读取响应头 X-Query-Count（正常请求不带）。
+ */
+const clean = (params, probe = false) => {
   const result = {}
   Object.keys(params || {}).forEach((key) => {
     const value = params[key]
@@ -32,6 +35,9 @@ const clean = (params) => {
     }
     result[key] = Array.isArray(value) ? value.join(',') : value
   })
+  if (probe) {
+    result.sqlProbe = 1
+  }
   return result
 }
 
@@ -40,6 +46,8 @@ export const instrumentApi = {
   options: () => http.get('/instruments/options'),
   list: (params) => http.get('/instruments', { params: clean(params) }),
   history: (id) => http.get(`/instruments/${id}/history`),
+  // 多台乐器一次展开：一条请求批量装配，不按乐器逐条查询
+  histories: (ids, probe = false) => http.get('/instruments/history', { params: clean({ ids }, probe) }),
   create: (data) => http.post('/instruments', data),
   changeStatus: (id, status) => http.post(`/instruments/${id}/status`, { status })
 }

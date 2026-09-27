@@ -37,10 +37,12 @@
          公共片段 2：租期重叠判定条件（闭区间相交）。
          被 countOverlapForCreate / countOverlapForUpdate 两处 <include>，
          重叠口径只有一份定义，新建与改期不会跑偏。
+         在途只看「没有实际归还日」的订单：旧库里带 return_date 的 OVERDUE
+         已按归还历史解释，不能再挡住同一乐器后续开单（不依赖具体状态码）。
          ==================================================================== -->
     <sql id="rentalPeriodOverlap">
         r.instrument_id = #{instrumentId}
-        AND r.status IN ('BOOKED', 'RENTING', 'OVERDUE')
+        AND r.return_date IS NULL
         AND r.start_date &lt;= #{endDate}
         AND r.end_date   &gt;= #{startDate}
     </sql>

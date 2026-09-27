@@ -59,17 +59,18 @@
                   value-format="YYYY-MM-DD"
                   placeholder="实际归还日期"
                   style="width: 190px"
-                  :disabled="row.status === 'RETURNED'"
+                  :disabled="!!row.returnDate"
                 />
                 <el-button
                   type="primary"
                   size="small"
-                  :disabled="row.status === 'RETURNED'"
+                  :disabled="!!row.returnDate"
                   @click="doReturn(row)"
                 >确认归还并结算</el-button>
                 <span class="tip">
-                  <template v-if="row.status === 'OVERDUE'">该订单已按逾期归还结算</template>
-                  <template v-else-if="row.status === 'RETURNED'">该订单已归还完毕</template>
+                  <template v-if="row.returnDate && row.overdueDays > 0">该订单已按逾期归还结算（违约金保留原结算值）</template>
+                  <template v-else-if="row.returnDate">该订单已归还完毕</template>
+                  <template v-else-if="row.overdueDays > 0">已逾期 {{ row.overdueDays }} 天未归还，尽快办理结算</template>
                   <template v-else>填一个晚于 {{ row.endDate }} 的日期即可看到逾期违约金</template>
                 </span>
               </div>
@@ -94,12 +95,14 @@
         </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
-            <el-tag :type="tagType(row.status)" size="small" effect="dark">{{ row.statusName }}</el-tag>
+            <el-tag :type="tagType(row)" size="small" effect="dark">{{ row.statusName }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="逾期" width="130">
+        <el-table-column label="逾期" width="150">
           <template #default="{ row }">
-            <span v-if="row.overdueDays > 0" class="overdue">{{ row.overdueDays }} 天 / {{ formatMoney(row.overdueFee) }}</span>
+            <span v-if="row.overdueDays > 0" class="overdue">
+              {{ row.overdueDays }} 天 / {{ formatMoney(row.overdueFee) }}<template v-if="!row.returnDate">（试算）</template>
+            </span>
             <span v-else class="muted">—</span>
           </template>
         </el-table-column>
@@ -161,10 +164,11 @@ const filters = reactive({ instrumentIds: [], status: '' })
 const createVisible = ref(false)
 const form = reactive({ instrumentId: null, studentId: null, startDate: '', endDate: '', deposit: 0 })
 
-const tagType = (status) => {
-  if (status === 'RENTING') return 'warning'
-  if (status === 'BOOKED') return 'primary'
-  if (status === 'OVERDUE') return 'danger'
+// 标签颜色按后端统一装配的状态文案判断：逾期中 / 逾期归还 都高亮，已归还转绿
+const tagType = (row) => {
+  if (row.statusName === '逾期中' || row.statusName === '逾期归还') return 'danger'
+  if (row.statusName === '租用中') return 'warning'
+  if (row.statusName === '已预约') return 'primary'
   return 'success'
 }
 

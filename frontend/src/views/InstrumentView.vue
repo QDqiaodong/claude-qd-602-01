@@ -50,14 +50,16 @@
                     </el-table-column>
                     <el-table-column label="状态" width="110">
                       <template #default="{ row: r }">
-                        <el-tag :type="rentalTagType(r.status)" size="small" effect="light">{{ r.statusName }}</el-tag>
+                        <el-tag :type="rentalTagType(r)" size="small" effect="light">{{ r.statusName }}</el-tag>
                       </template>
                     </el-table-column>
                     <el-table-column label="归还 / 逾期" min-width="180">
                       <template #default="{ row: r }">
                         <span v-if="r.returnDate">{{ r.returnDate }}</span>
                         <span v-else class="muted">未归还</span>
-                        <span v-if="r.overdueDays > 0" class="overdue">逾期 {{ r.overdueDays }} 天 · {{ formatMoney(r.overdueFee) }}</span>
+                        <span v-if="r.overdueDays > 0" class="overdue">
+                          逾期 {{ r.overdueDays }} 天 · {{ formatMoney(r.overdueFee) }}<template v-if="!r.returnDate">（试算）</template>
+                        </span>
                       </template>
                     </el-table-column>
                   </el-table>
@@ -212,10 +214,10 @@ const instrumentTagType = (status) => {
   if (status === 'REPAIRING') return 'primary'
   return 'info'
 }
-const rentalTagType = (status) => {
-  if (status === 'RENTING') return 'warning'
-  if (status === 'BOOKED') return 'primary'
-  if (status === 'OVERDUE') return 'danger'
+const rentalTagType = (row) => {
+  if (row.statusName === '逾期中' || row.statusName === '逾期归还') return 'danger'
+  if (row.statusName === '租用中') return 'warning'
+  if (row.statusName === '已预约') return 'primary'
   return 'success'
 }
 const serviceTagType = (status) => {
@@ -234,6 +236,10 @@ const servicePhaseTagType = (phase) => {
 const load = async () => {
   const res = await instrumentApi.list({ category: filters.category, status: filters.status })
   rows.value = res.data || []
+  // 筛选结果变了：历史结论必须随最新数据装配，不能继续展示旧缓存
+  for (const key of Object.keys(history)) {
+    delete history[key]
+  }
 }
 
 const reset = async () => {
@@ -242,21 +248,50 @@ const reset = async () => {
   await load()
 }
 
-const onExpand = async (row, expanded) => {
-  if (!expanded.length || history[row.id]) return
-  loading[row.id] = true
+// 展开多行时合并为一次批量请求：连续展开（含快速连点多行）的 id 在同一个防抖窗口内，
+// 只打一条 /instruments/history，绝不按行逐条查询
+let pendingIds = []
+let flushTimer = null
+const flushHistories = async () => {
+  flushTimer = null
+  const ids = pendingIds
+  pendingIds = []
+  if (!ids.length) {
+    return
+  }
+  ids.forEach((id) => {
+    loading[id] = true
+  })
   try {
-    const res = await instrumentApi.history(row.id)
-    history[row.id] = res.data
+    const res = await instrumentApi.histories(ids)
+    for (const item of res.data || []) {
+      history[item.instrument.id] = item
+    }
   } finally {
-    loading[row.id] = false
+    ids.forEach((id) => {
+      loading[id] = false
+    })
+  }
+}
+
+const onExpand = (row, expanded) => {
+  if (!expanded.length) {
+    return
+  }
+  // 重复展开同一行也重新装配：不沿用旧缓存，办理归还 / 状态变化后再回来始终拿最新结论
+  delete history[row.id]
+  if (!pendingIds.includes(row.id)) {
+    pendingIds.push(row.id)
+  }
+  // 同一窗口内展开多台只发一条批量请求
+  if (flushTimer === null) {
+    flushTimer = setTimeout(flushHistories, 60)
   }
 }
 
 const changeStatus = async (row, status) => {
   const res = await instrumentApi.changeStatus(row.id, status)
   ElMessage.success(`【${row.instrumentNo}】已流转为「${statusName(res.data.status)}」`)
-  delete history[row.id]
   await load()
 }
 

@@ -53,6 +53,15 @@ public class InstrumentController {
         return ApiResponse.success(instrumentService.history(id));
     }
 
+    /**
+     * 多台乐器一次展开：租赁/维修历史批量装配返回（每台一个 history 元素），
+     * 前端一次展开多行只打一条请求，后端查询次数不随乐器数 / 历史条数增长。
+     */
+    @GetMapping("/history")
+    public ApiResponse<List<InstrumentHistoryView>> histories(@RequestParam List<Long> ids) {
+        return ApiResponse.success(instrumentService.batchHistories(ids));
+    }
+
     @PostMapping
     public ApiResponse<Instrument> create(@RequestBody InstrumentCreateRequest request) {
         return ApiResponse.success("入库成功", instrumentService.create(request));

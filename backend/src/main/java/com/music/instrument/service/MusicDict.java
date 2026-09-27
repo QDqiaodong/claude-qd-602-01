@@ -101,6 +101,9 @@ public final class MusicDict {
         RENTAL_STATUS.put("RENTING", "租用中");
         RENTAL_STATUS.put("RETURNED", "已归还");
         RENTAL_STATUS.put("OVERDUE", "逾期归还");
+        // OVERDUE_ACTIVE 只用于只读装配：库里仍是旧状态码、没有实际归还日且按当前日期已逾期的订单，
+        // 两个入口统一展示为「逾期中」。不参与任何写入，也不允许按它建单。
+        RENTAL_STATUS.put("OVERDUE_ACTIVE", "逾期中");
     }
 
     // ---------------- 完工 / 验收轮次 ----------------

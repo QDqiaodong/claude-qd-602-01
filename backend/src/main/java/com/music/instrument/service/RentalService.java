@@ -35,13 +35,16 @@ public class RentalService {
     private final RentalOrderMapper rentalOrderMapper;
     private final InstrumentMapper instrumentMapper;
     private final StudentMapper studentMapper;
+    private final RentalHistoryAssembler rentalHistoryAssembler;
 
     public RentalService(RentalOrderMapper rentalOrderMapper,
                          InstrumentMapper instrumentMapper,
-                         StudentMapper studentMapper) {
+                         StudentMapper studentMapper,
+                         RentalHistoryAssembler rentalHistoryAssembler) {
         this.rentalOrderMapper = rentalOrderMapper;
         this.instrumentMapper = instrumentMapper;
         this.studentMapper = studentMapper;
+        this.rentalHistoryAssembler = rentalHistoryAssembler;
     }
 
     public Map<String, Object> options() {
@@ -50,10 +53,8 @@ public class RentalService {
 
     public List<RentalView> list(List<Long> instrumentIds, String status) {
         List<RentalView> views = rentalOrderMapper.list(instrumentIds, status);
-        LocalDate today = LocalDate.now();
-        for (RentalView view : views) {
-            decorate(view, today);
-        }
+        // 租期 / 逾期 / 状态文案只走统一装配，与乐器台账展开历史完全同口径
+        rentalHistoryAssembler.assembleAll(views, LocalDate.now());
         return views;
     }
 
@@ -136,11 +137,12 @@ public class RentalService {
         order.setUpdatedAt(now);
 
         rentalOrderMapper.insert(order);
-        return rentalOrderMapper.findById(order.getId());
+        return rentalHistoryAssembler.assemble(rentalOrderMapper.findById(order.getId()), LocalDate.now());
     }
 
     /**
      * 办理归还：晚于租期结束日归还的，按「日租金 × 逾期天数 × 1.5」计违约金。
+     * 兼容旧库：只要带实际归还日（RETURNED 或旧的 OVERDUE）都视为已办结，不能重复归还。
      */
     @Transactional
     public RentalView returnOrder(Long id, ReturnRequest request) {
@@ -151,8 +153,9 @@ public class RentalService {
         if (order == null) {
             throw new BizException("租赁订单不存在，无法办理归还");
         }
-        if ("RETURNED".equals(order.getStatus())) {
-            throw new BizException("订单【" + order.getOrderNo() + "】已归还完毕，无需重复办理");
+        if (order.getReturnDate() != null) {
+            throw new BizException("订单【" + order.getOrderNo() + "】已于 " + order.getReturnDate()
+                    + " 归还完毕，无需重复办理");
         }
         if (request == null || request.getReturnDate() == null) {
             throw new BizException("请填写实际归还日期");
@@ -170,20 +173,7 @@ public class RentalService {
         String status = overdueDays > 0 ? "OVERDUE" : "RETURNED";
 
         rentalOrderMapper.updateReturn(id, returnDate, overdueFee, status, LocalDateTime.now());
-        return rentalOrderMapper.findById(id);
-    }
-
-    private void decorate(RentalView view, LocalDate today) {
-        view.setStatusName(MusicDict.rentalStatusName(view.getStatus()));
-
-        long days = ChronoUnit.DAYS.between(view.getStartDate(), view.getEndDate()) + 1;
-        view.setRentDays((int) days);
-        view.setOverdueDays((int) computeOverdueDays(view, today));
-    }
-
-    private long computeOverdueDays(RentalView view, LocalDate today) {
-        LocalDate reference = view.getReturnDate() != null ? view.getReturnDate() : today;
-        return Math.max(0, ChronoUnit.DAYS.between(view.getEndDate(), reference));
+        return rentalHistoryAssembler.assemble(rentalOrderMapper.findById(id), LocalDate.now());
     }
 
     private String nextOrderNo() {
