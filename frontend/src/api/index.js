@@ -40,6 +40,8 @@ export const instrumentApi = {
   options: () => http.get('/instruments/options'),
   list: (params) => http.get('/instruments', { params: clean(params) }),
   history: (id) => http.get(`/instruments/${id}/history`),
+  // 一次展开多台时批量取历史：一个请求拿回全部，后端按 id 集合批量装配
+  histories: (ids) => http.get('/instruments/history', { params: { ids: ids.join(',') } }),
   create: (data) => http.post('/instruments', data),
   changeStatus: (id, status) => http.post(`/instruments/${id}/status`, { status })
 }

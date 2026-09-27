@@ -188,6 +188,7 @@ const categories = ref([])
 const statuses = ref([])
 const history = reactive({})
 const loading = reactive({})
+const expandedIds = ref([])
 
 const filters = reactive({ category: '', status: '' })
 const createVisible = ref(false)
@@ -215,7 +216,7 @@ const instrumentTagType = (status) => {
 const rentalTagType = (status) => {
   if (status === 'RENTING') return 'warning'
   if (status === 'BOOKED') return 'primary'
-  if (status === 'OVERDUE') return 'danger'
+  if (status === 'OVERDUE' || status === 'OVERDUE_UNRETURNED') return 'danger'
   return 'success'
 }
 const serviceTagType = (status) => {
@@ -234,6 +235,10 @@ const servicePhaseTagType = (phase) => {
 const load = async () => {
   const res = await instrumentApi.list({ category: filters.category, status: filters.status })
   rows.value = res.data || []
+  // 筛选 / 刷新后旧的展开结论一律作废；仍展开的行立即按最新数据批量重取，不看旧缓存
+  Object.keys(history).forEach((key) => delete history[key])
+  const stillExpanded = expandedIds.value.filter((id) => rows.value.some((row) => row.id === id))
+  await fetchHistories(stillExpanded)
 }
 
 const reset = async () => {
@@ -242,21 +247,36 @@ const reset = async () => {
   await load()
 }
 
-const onExpand = async (row, expanded) => {
-  if (!expanded.length || history[row.id]) return
-  loading[row.id] = true
+// 批量取回多台乐器的展开历史：一个请求拿全部，不逐台追加请求
+const fetchHistories = async (ids) => {
+  if (!ids.length) return
+  ids.forEach((id) => { loading[id] = true })
   try {
-    const res = await instrumentApi.history(row.id)
-    history[row.id] = res.data
+    const res = await instrumentApi.histories(ids)
+    ;(res.data || []).forEach((item) => {
+      history[item.instrument.id] = item
+    })
   } finally {
-    loading[row.id] = false
+    ids.forEach((id) => { delete loading[id] })
   }
+}
+
+const onExpand = async (row, expandedRows) => {
+  const expanded = Array.isArray(expandedRows) ? expandedRows.map((item) => item.id) : []
+  expandedIds.value = expanded
+  if (!expanded.includes(row.id)) {
+    // 收起即作废缓存，下次展开必须重新取最新结论
+    delete history[row.id]
+    return
+  }
+  // 本次新展开的行（可能多台）一次性批量取回；已有数据的行不重复请求
+  const pending = expanded.filter((id) => !history[id])
+  await fetchHistories(pending)
 }
 
 const changeStatus = async (row, status) => {
   const res = await instrumentApi.changeStatus(row.id, status)
   ElMessage.success(`【${row.instrumentNo}】已流转为「${statusName(res.data.status)}」`)
-  delete history[row.id]
   await load()
 }
 

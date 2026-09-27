@@ -2,8 +2,11 @@ package com.music.instrument.service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import org.springframework.stereotype.Service;
 
@@ -27,15 +30,18 @@ public class InstrumentService {
     private final RentalOrderMapper rentalOrderMapper;
     private final ServiceOrderMapper serviceOrderMapper;
     private final ServiceOrderService serviceOrderService;
+    private final RentalViewAssembler rentalViewAssembler;
 
     public InstrumentService(InstrumentMapper instrumentMapper,
                              RentalOrderMapper rentalOrderMapper,
                              ServiceOrderMapper serviceOrderMapper,
-                             ServiceOrderService serviceOrderService) {
+                             ServiceOrderService serviceOrderService,
+                             RentalViewAssembler rentalViewAssembler) {
         this.instrumentMapper = instrumentMapper;
         this.rentalOrderMapper = rentalOrderMapper;
         this.serviceOrderMapper = serviceOrderMapper;
         this.serviceOrderService = serviceOrderService;
+        this.rentalViewAssembler = rentalViewAssembler;
     }
 
     public Map<String, Object> options() {
@@ -64,35 +70,65 @@ public class InstrumentService {
     }
 
     /**
-     * 行内展开详情：该乐器的全部租赁记录 + 全部服务单。
+     * 行内展开详情（单台）：该乐器的全部租赁记录 + 全部服务单。
      */
     public InstrumentHistoryView history(Long id) {
         if (id == null) {
             throw new BizException("请指定要展开的乐器");
         }
-        List<Instrument> instruments = instrumentMapper.findByIds(List.of(id));
+        return histories(List.of(id));
+    }
+
+    /**
+     * 批量展开详情：一次展开多台乐器时，租赁/维修历史都按 id 集合一次性取回再分组，
+     * 查询次数固定（乐器 1 次 + 租赁 1 次 + 服务单 1 次 + 完工轮次 1 次），
+     * 不随乐器台数或历史条数追加查询；不存在的乐器 id 直接跳过，不影响其它乐器返回。
+     */
+    public List<InstrumentHistoryView> histories(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw new BizException("请指定要展开的乐器");
+        }
+        List<Long> uniqueIds = ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (uniqueIds.isEmpty()) {
+            throw new BizException("请指定要展开的乐器");
+        }
+        List<Instrument> instruments = instrumentMapper.findByIds(uniqueIds);
         if (instruments.isEmpty()) {
             throw new BizException("乐器不存在，无法展开历史");
         }
 
-        InstrumentHistoryView view = new InstrumentHistoryView();
-        view.setInstrument(instruments.get(0));
-
-        List<RentalView> rentals = rentalOrderMapper.listByInstrumentIds(List.of(id));
+        // 租赁历史：一次查询取回全部乐器，并套用与租赁订单页完全相同的只读装配
+        List<RentalView> rentals = rentalOrderMapper.listByInstrumentIds(uniqueIds);
+        rentalViewAssembler.assemble(rentals);
+        Map<Long, List<RentalView>> rentalsByInstrument = new LinkedHashMap<>();
         for (RentalView rental : rentals) {
-            rental.setStatusName(MusicDict.rentalStatusName(rental.getStatus()));
+            rentalsByInstrument
+                    .computeIfAbsent(rental.getInstrumentId(), k -> new ArrayList<>())
+                    .add(rental);
         }
-        view.setRentals(rentals);
 
-        List<ServiceView> services = serviceOrderMapper.listByInstrumentIds(List.of(id));
-        // 与维修页同一装配口径：按轮次补齐完工/验收记录，保证两处展开结论一致
+        // 维修历史：与维修页同一装配口径，轮次记录同样一次查询批量补齐
+        List<ServiceView> services = serviceOrderMapper.listByInstrumentIds(uniqueIds);
         serviceOrderService.attachRounds(services);
+        Map<Long, List<ServiceView>> servicesByInstrument = new LinkedHashMap<>();
         for (ServiceView service : services) {
             service.setServiceTypeName(MusicDict.serviceTypeName(service.getServiceType()));
             service.setStatusName(MusicDict.serviceStatusName(service.getStatus()));
+            servicesByInstrument
+                    .computeIfAbsent(service.getInstrumentId(), k -> new ArrayList<>())
+                    .add(service);
         }
-        view.setServices(services);
-        return view;
+
+        List<InstrumentHistoryView> views = new ArrayList<>();
+        for (Instrument instrument : instruments) {
+            InstrumentHistoryView view = new InstrumentHistoryView();
+            view.setInstrument(instrument);
+            // 空历史正常返回空列表，不报异常
+            view.setRentals(rentalsByInstrument.getOrDefault(instrument.getId(), List.of()));
+            view.setServices(servicesByInstrument.getOrDefault(instrument.getId(), List.of()));
+            views.add(view);
+        }
+        return views;
     }
 
     public Instrument create(InstrumentCreateRequest request) {

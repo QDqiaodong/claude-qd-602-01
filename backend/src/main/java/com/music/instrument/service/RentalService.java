@@ -35,13 +35,16 @@ public class RentalService {
     private final RentalOrderMapper rentalOrderMapper;
     private final InstrumentMapper instrumentMapper;
     private final StudentMapper studentMapper;
+    private final RentalViewAssembler rentalViewAssembler;
 
     public RentalService(RentalOrderMapper rentalOrderMapper,
                          InstrumentMapper instrumentMapper,
-                         StudentMapper studentMapper) {
+                         StudentMapper studentMapper,
+                         RentalViewAssembler rentalViewAssembler) {
         this.rentalOrderMapper = rentalOrderMapper;
         this.instrumentMapper = instrumentMapper;
         this.studentMapper = studentMapper;
+        this.rentalViewAssembler = rentalViewAssembler;
     }
 
     public Map<String, Object> options() {
@@ -50,10 +53,8 @@ public class RentalService {
 
     public List<RentalView> list(List<Long> instrumentIds, String status) {
         List<RentalView> views = rentalOrderMapper.list(instrumentIds, status);
-        LocalDate today = LocalDate.now();
-        for (RentalView view : views) {
-            decorate(view, today);
-        }
+        // 与乐器台账展开历史共用同一套只读装配，两个入口结论逐项一致
+        rentalViewAssembler.assemble(views);
         return views;
     }
 
@@ -136,7 +137,7 @@ public class RentalService {
         order.setUpdatedAt(now);
 
         rentalOrderMapper.insert(order);
-        return rentalOrderMapper.findById(order.getId());
+        return assembled(order.getId());
     }
 
     /**
@@ -151,7 +152,8 @@ public class RentalService {
         if (order == null) {
             throw new BizException("租赁订单不存在，无法办理归还");
         }
-        if ("RETURNED".equals(order.getStatus())) {
+        // 已归还历史（含旧库里「带归还日的 OVERDUE」）不允许重复结算，保住原费用
+        if ("RETURNED".equals(order.getStatus()) || order.getReturnDate() != null) {
             throw new BizException("订单【" + order.getOrderNo() + "】已归还完毕，无需重复办理");
         }
         if (request == null || request.getReturnDate() == null) {
@@ -170,20 +172,14 @@ public class RentalService {
         String status = overdueDays > 0 ? "OVERDUE" : "RETURNED";
 
         rentalOrderMapper.updateReturn(id, returnDate, overdueFee, status, LocalDateTime.now());
-        return rentalOrderMapper.findById(id);
+        return assembled(id);
     }
 
-    private void decorate(RentalView view, LocalDate today) {
-        view.setStatusName(MusicDict.rentalStatusName(view.getStatus()));
-
-        long days = ChronoUnit.DAYS.between(view.getStartDate(), view.getEndDate()) + 1;
-        view.setRentDays((int) days);
-        view.setOverdueDays((int) computeOverdueDays(view, today));
-    }
-
-    private long computeOverdueDays(RentalView view, LocalDate today) {
-        LocalDate reference = view.getReturnDate() != null ? view.getReturnDate() : today;
-        return Math.max(0, ChronoUnit.DAYS.between(view.getEndDate(), reference));
+    /** 单条订单的读视图：与列表、乐器历史同一套装配口径。 */
+    private RentalView assembled(Long id) {
+        RentalView view = rentalOrderMapper.findById(id);
+        rentalViewAssembler.assemble(List.of(view));
+        return view;
     }
 
     private String nextOrderNo() {

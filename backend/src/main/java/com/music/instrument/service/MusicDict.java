@@ -103,6 +103,13 @@ public final class MusicDict {
         RENTAL_STATUS.put("OVERDUE", "逾期归还");
     }
 
+    /**
+     * 视图层派生状态：未归还且已过租期结束日（逾期中）。
+     * 数据库只存上面四个值，该状态由 RentalViewAssembler 按当前日期推导，仅用于展示，
+     * 因此不进 RENTAL_STATUS（筛选下拉仍是库里的四个值）。
+     */
+    public static final String RENTAL_STATUS_OVERDUE_UNRETURNED = "OVERDUE_UNRETURNED";
+
     // ---------------- 完工 / 验收轮次 ----------------
     private static final Map<String, String> COMPLETION_PHASE = new LinkedHashMap<>();
 
@@ -239,6 +246,9 @@ public final class MusicDict {
     }
 
     public static String rentalStatusName(String status) {
+        if (RENTAL_STATUS_OVERDUE_UNRETURNED.equals(status)) {
+            return "逾期中";
+        }
         return status == null ? "" : RENTAL_STATUS.getOrDefault(status, status);
     }
 
